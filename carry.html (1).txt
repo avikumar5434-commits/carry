@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Carry</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0e1a;color:#fff;font-family:'Segoe UI',sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.header{background:linear-gradient(135deg,#1a237e,#00bcd4);padding:14px;text-align:center;box-shadow:0 4px 20px rgba(0,188,212,.5)}
+.header h1{font-size:1.7rem;letter-spacing:4px;text-shadow:0 0 20px #00e5ff}
+.header p{font-size:.7rem;color:#b3e5fc;margin-top:2px}
+#chat{flex:1;overflow-y:auto;padding:15px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:82%;padding:11px 15px;border-radius:16px;font-size:.92rem;line-height:1.4;word-wrap:break-word}
+.user{align-self:flex-end;background:linear-gradient(135deg,#00bcd4,#0288d1);border-bottom-right-radius:4px}
+.bot{align-self:flex-start;background:#1e2a3a;color:#e0f7fa;border-left:3px solid #00e5ff;border-bottom-left-radius:4px}
+.mic-area{padding:15px;text-align:center;background:#0d1421;border-top:1px solid #1e2a3a}
+.mic{width:85px;height:85px;border-radius:50%;background:radial-gradient(circle,#00bcd4,#004d5c);border:3px solid #00e5ff;display:flex;align-items:center;justify-content:center;font-size:2.3rem;cursor:pointer;margin:0 auto;box-shadow:0 0 30px rgba(0,229,255,.6);transition:all .3s}
+.mic:active{transform:scale(.95)}
+.mic.listening{background:radial-gradient(circle,#ff0066,#5c0024);border-color:#ff0066;box-shadow:0 0 40px #ff0066}
+#status{color:#00e5ff;font-size:.82rem;margin-top:8px;min-height:18px}
+.typing{color:#b3e5fc;font-size:.85rem;font-style:italic}
+</style>
+</head>
+<body>
+
+<div class="header">
+<h1>CARRY</h1>
+<p>आपका AI सहायक</p>
+</div>
+
+<div id="chat"></div>
+
+<div class="mic-area">
+<div class="mic" id="micBtn">🎤</div>
+<div id="status">बोलने के लिए दबाएँ...</div>
+</div>
+
+<script>
+const GROQ_API_KEY = "";
+const MODEL = "llama-3.3-70b-versatile";
+
+const micBtn=document.getElementById('micBtn');
+const status=document.getElementById('status');
+const chat=document.getElementById('chat');
+
+let history=[
+{role:"system",content:"तुम्हारा नाम Carry है। तुम smart, friendly और helpful AI assistant हो। हमेशा हिंदी में जवाब दो। छोटे और सरल जवाब दो। User की बातें याद रखो।"}
+];
+
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let recognition=null,listening=false;
+
+if(SR){
+recognition=new SR();
+recognition.lang='hi-IN';
+recognition.continuous=false;
+recognition.interimResults=false;
+}
+
+function addMsg(text,type){
+const d=document.createElement('div');
+d.className='msg '+type;
+d.textContent=text;
+chat.appendChild(d);
+chat.scrollTop=chat.scrollHeight;
+}
+
+function showTyping(){
+const d=document.createElement('div');
+d.className='msg bot typing';
+d.id='typing';
+d.textContent='Carry सोच रहा है...';
+chat.appendChild(d);
+chat.scrollTop=chat.scrollHeight;
+}
+
+function hideTyping(){
+const e=document.getElementById('typing');
+if(e)e.remove();
+}
+
+async function askCarry(msg){
+history.push({role:"user",content:msg});
+if(history.length>21){history=[history[0],...history.slice(-20)];}
+try{
+showTyping();
+const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+method:'POST',
+headers:{'Content-Type':'application/json','Authorization':'Bearer '+GROQ_API_KEY},
+body:JSON.stringify({model:MODEL,messages:history,temperature:0.7,max_tokens:1024})
+});
+const data=await r.json();
+hideTyping();
+if(data.error){addMsg('त्रुटि: '+data.error.message,'bot');speak('क्षमा करें, त्रुटि हुई।');return;}
+const reply=data.choices[0].message.content;
+history.push({role:"assistant",content:reply});
+addMsg(reply,'bot');
+speak(reply);
+}catch(e){
+hideTyping();
+addMsg('त्रुटि: '+e.message,'bot');
+speak('नेटवर्क समस्या है।');
+}
+}
+
+function speak(text){
+speechSynthesis.cancel();
+const s=new SpeechSynthesisUtterance(text);
+s.lang='hi-IN';s.rate=1;s.pitch=1;s.volume=1;
+const v=speechSynthesis.getVoices();
+const hv=v.find(x=>x.lang==='hi-IN'||x.lang.startsWith('hi'));
+if(hv)s.voice=hv;
+speechSynthesis.speak(s);
+}
+
+micBtn.onclick=()=>{
+if(!recognition){status.innerText='ब्राउज़र सपोर्ट नहीं करता';return;}
+if(!listening){
+try{recognition.start();listening=true;micBtn.classList.add('listening');status.innerText='🎧 सुन रहा हूँ...';}
+catch(e){status.innerText='त्रुटि: '+e.message;}
+}else{
+recognition.stop();listening=false;micBtn.classList.remove('listening');status.innerText='बोलने के लिए दबाएँ...';
+}
+};
+
+if(recognition){
+recognition.onresult=(e)=>{
+const t=e.results[0][0].transcript;
+addMsg(t,'user');
+status.innerText='सोच रहा हूँ...';
+askCarry(t);
+};
+recognition.onerror=(e)=>{
+listening=false;micBtn.classList.remove('listening');
+status.innerText='त्रुटि: '+e.error;
+};
+recognition.onend=()=>{
+listening=false;micBtn.classList.remove('listening');
+if(status.innerText.includes('सुन रहा'))status.innerText='बोलने के लिए दबाएँ...';
+};
+}
+
+speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices();
+
+addMsg('नमस्ते! मैं Carry हूँ। आप कैसे हैं?','bot');
+</script>
+
+</body>
+</html>
