@@ -29,8 +29,8 @@ body{background:#0a0e1a;color:#fff;font-family:'Segoe UI',sans-serif;height:100v
 <div id="status">बोलने के लिए दबाएँ...</div>
 </div>
 <script>
-const OPENROUTER_API_KEY = "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";
-const MODEL = "google/gemma-2-9b-it:free";
+const HF_TOKEN = "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";
+const MODEL = "meta-llama/Llama-3.2-3B-Instruct";
 
 const micBtn=document.getElementById('micBtn');
 const status=document.getElementById('status');
@@ -51,14 +51,14 @@ history.push({role:"user",content:msg});
 if(history.length>21){history=[history[0],...history.slice(-20)];}
 try{
 showTyping();
-const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{
+const r=await fetch('https://api-inference.huggingface.co/models/'+MODEL+'/v1/chat/completions',{
 method:'POST',
-headers:{'Content-Type':'application/json','Authorization':'Bearer '+OPENROUTER_API_KEY},
-body:JSON.stringify({model:MODEL,messages:history,temperature:0.7,max_tokens:1024})
+headers:{'Content-Type':'application/json','Authorization':'Bearer '+HF_TOKEN},
+body:JSON.stringify({model:MODEL,messages:history,max_tokens:512,temperature:0.7})
 });
 const data=await r.json();
 hideTyping();
-if(data.error){addMsg('त्रुटि: '+data.error.message,'bot');speak('क्षमा करें, त्रुटि हुई।');return;}
+if(data.error){addMsg('त्रुटि: '+data.error,'bot');speak('क्षमा करें, त्रुटि हुई।');return;}
 const reply=data.choices[0].message.content;
 history.push({role:"assistant",content:reply});
 addMsg(reply,'bot');
