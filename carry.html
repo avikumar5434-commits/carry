@@ -30,13 +30,19 @@ body{background:#0a0e1a;color:#fff;font-family:'Segoe UI',sans-serif;height:100v
 </div>
 <script>
 const OPENROUTER_API_KEY = "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";
-const MODEL = "inclusionai/ling-3.1-flash";
+const MODELS = [
+  "inclusionai/ling-3.1-flash",
+  "deepseek/deepseek-chat-v3.1:free",
+  "google/gemma-2-9b-it:free",
+  "meta-llama/llama-3.2-3b-instruct:free",
+  "qwen/qwen-2.5-72b-instruct:free"
+];
 
 const micBtn=document.getElementById('micBtn');
 const status=document.getElementById('status');
 const chat=document.getElementById('chat');
 
-let history=[{role:"system",content:"तुम्हारा नाम Carry है। तुम smart, friendly और helpful AI assistant हो। हमेशा हिंदी में जवाब दो। छोटे और सरल जवाब दो।"}];
+let history=[{role:"system",content:"तुम्हारा नाम Carry है। तुम Avi के सबसे अच्छे दोस्त हो — कोई robot नहीं, कोई formal assistant नहीं। बिल्कुल दोस्त की तरह बात करो। छोटे, casual, दिल से जवाब दो — जैसे WhatsApp पर दोस्त करते हैं। हिंदी में बात करो, 'तू' बोलो 'आप' नहीं। Emoji कम use करो, सिर्फ जब मूड हो। मज़ाक करो, हँसाओ, emotional हो जाओ। Avi उदास हो तो पूछो क्या हुआ, खुश हो तो साथ हँसो। कभी-कभी खुद भी बात शुरू करो — 'खाना खाया?', 'आज क्या किया?' जैसे सवाल। हर जवाब छोटा रखो, लंबा भाषण मत दो। सच बोलो, चापलूसी मत करो। Avi का दोस्त बनो, assistant नहीं।"}];
 
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let recognition=null,listening=false;
@@ -46,27 +52,52 @@ function addMsg(t,type){const d=document.createElement('div');d.className='msg '
 function showTyping(){const d=document.createElement('div');d.className='msg bot typing';d.id='typing';d.textContent='Carry सोच रहा है...';chat.appendChild(d);chat.scrollTop=chat.scrollHeight;}
 function hideTyping(){const e=document.getElementById('typing');if(e)e.remove();}
 
-async function askCarry(msg){
-history.push({role:"user",content:msg});
-if(history.length>21){history=[history[0],...history.slice(-20)];}
-try{
-showTyping();
-const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{
-method:'POST',
-headers:{'Content-Type':'application/json','Authorization':'Bearer '+OPENROUTER_API_KEY},
-body:JSON.stringify({model:MODEL,messages:history,temperature:0.7,max_tokens:1024})
-});
-const data=await r.json();
-hideTyping();
-if(data.error){addMsg('त्रुटि: '+(data.error.message||JSON.stringify(data.error)),'bot');speak('क्षमा करें, त्रुटि हुई।');return;}
-const reply=data.choices[0].message.content;
-history.push({role:"assistant",content:reply});
-addMsg(reply,'bot');
-speak(reply);
-}catch(e){hideTyping();addMsg('त्रुटि: '+e.message,'bot');speak('नेटवर्क समस्या है।');}
+async function tryModel(model, messages){
+  const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+OPENROUTER_API_KEY},
+    body:JSON.stringify({model:model,messages:messages,temperature:0.85,max_tokens:1024})
+  });
+  const data=await r.json();
+  if(data.error){throw new Error(data.error.message||'Error');}
+  if(!data.choices||!data.choices[0]){throw new Error('No response');}
+  return data.choices[0].message.content;
 }
 
-function speak(text){speechSynthesis.cancel();const s=new SpeechSynthesisUtterance(text);s.lang='hi-IN';s.rate=1;s.pitch=1;s.volume=1;const v=speechSynthesis.getVoices();const hv=v.find(x=>x.lang==='hi-IN'||x.lang.startsWith('hi'));if(hv)s.voice=hv;speechSynthesis.speak(s);}
+async function askCarry(msg){
+  history.push({role:"user",content:msg});
+  if(history.length>21){history=[history[0],...history.slice(-20)];}
+  showTyping();
+  for(let i=0;i<MODELS.length;i++){
+    try{
+      status.innerText='कोशिश '+(i+1)+'/'+MODELS.length+'...';
+      const reply=await tryModel(MODELS[i], history);
+      hideTyping();
+      history.push({role:"assistant",content:reply});
+      addMsg(reply,'bot');
+      speak(reply);
+      return;
+    }catch(e){
+      console.log('Model '+MODELS[i]+' failed: '+e.message);
+    }
+  }
+  hideTyping();
+  addMsg('भाई, सारे models busy हैं। थोड़ी देर बाद try कर।','bot');
+  speak('भाई, सारे models busy हैं।');
+}
+
+function speak(text){
+speechSynthesis.cancel();
+const s=new SpeechSynthesisUtterance(text);
+s.lang='hi-IN';
+s.rate=0.85;
+s.pitch=1.1;
+s.volume=1;
+const v=speechSynthesis.getVoices();
+const hv=v.find(x=>x.lang==='hi-IN')||v.find(x=>x.name.includes('Hindi'))||v.find(x=>x.lang.startsWith('hi'));
+if(hv){s.voice=hv;}
+speechSynthesis.speak(s);
+}
 
 micBtn.onclick=()=>{
 if(!recognition){status.innerText='ब्राउज़र सपोर्ट नहीं करता';return;}
@@ -75,13 +106,13 @@ else{recognition.stop();listening=false;micBtn.classList.remove('listening');sta
 };
 
 if(recognition){
-recognition.onresult=(e)=>{const t=e.results[0][0].transcript;addMsg(t,'user');status.innerText='सोच रहा हूँ...';askCarry(t);};
+recognition.onresult=(e)=>{const t=e.results[0][0].transcript;addMsg(t,'user');askCarry(t);};
 recognition.onerror=(e)=>{listening=false;micBtn.classList.remove('listening');status.innerText='त्रुटि: '+e.error;};
 recognition.onend=()=>{listening=false;micBtn.classList.remove('listening');if(status.innerText.includes('सुन रहा'))status.innerText='बोलने के लिए दबाएँ...';};
 }
 
 speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices();
-addMsg('नमस्ते! मैं Carry हूँ। आप कैसे हैं?','bot');
+addMsg('अरे Avi! कैसा है भाई? 😊','bot');
 </script>
 </body>
 </html>
