@@ -14,43 +14,95 @@ body{background:#0a0e1a;color:#fff;font-family:'Segoe UI',sans-serif;height:100v
 .msg{max-width:82%;padding:11px 15px;border-radius:16px;font-size:.92rem;line-height:1.4;word-wrap:break-word}
 .user{align-self:flex-end;background:linear-gradient(135deg,#00bcd4,#0288d1);border-bottom-right-radius:4px}
 .bot{align-self:flex-start;background:#1e2a3a;color:#e0f7fa;border-left:3px solid #00e5ff;border-bottom-left-radius:4px}
-.mic-area{padding:15px;text-align:center;background:#0d1421;border-top:1px solid #1e2a3a}
-.mic{width:85px;height:85px;border-radius:50%;background:radial-gradient(circle,#00bcd4,#004d5c);border:3px solid #00e5ff;display:flex;align-items:center;justify-content:center;font-size:2.3rem;cursor:pointer;margin:0 auto;box-shadow:0 0 30px rgba(0,229,255,.6)}
-.mic.listening{background:radial-gradient(circle,#ff0066,#5c0024);border-color:#ff0066;box-shadow:0 0 40px #ff0066}
-#status{color:#00e5ff;font-size:.82rem;margin-top:8px;min-height:18px}
-.typing{color:#b3e5fc;font-size:.85rem;font-style:italic}
+.status-area{padding:12px;text-align:center;background:#0d1421;border-top:1px solid #1e2a3a}
+.dot{width:14px;height:14px;border-radius:50%;background:#00e5ff;display:inline-block;margin-right:8px;box-shadow:0 0 15px #00e5ff;animation:pulse 1.5s infinite}
+.dot.listening{background:#ff0066;box-shadow:0 0 20px #ff0066}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.6;transform:scale(1.2)}}
+#status{color:#00e5ff;font-size:.82rem;display:inline-block;vertical-align:middle}
 </style>
 </head>
 <body>
 <div class="header"><h1>CARRY</h1><p>आपका AI सहायक</p></div>
 <div id="chat"></div>
-<div class="mic-area">
-<div class="mic" id="micBtn">🎤</div>
-<div id="status">बोलने के लिए दबाएँ...</div>
+<div class="status-area">
+<span class="dot" id="dot"></span>
+<span id="status">तैयार हो रहा हूँ...</span>
 </div>
 <script>
 const OPENROUTER_API_KEY = "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";
 const MODELS = [
-  "inclusionai/ling-3.1-flash",
   "deepseek/deepseek-chat-v3.1:free",
+  "qwen/qwen-2.5-72b-instruct:free",
   "google/gemma-2-9b-it:free",
-  "meta-llama/llama-3.2-3b-instruct:free",
-  "qwen/qwen-2.5-72b-instruct:free"
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "inclusionai/ling-3.1-flash"
 ];
 
-const micBtn=document.getElementById('micBtn');
-const status=document.getElementById('status');
+const statusEl=document.getElementById('status');
+const dotEl=document.getElementById('dot');
 const chat=document.getElementById('chat');
 
-let history=[{role:"system",content:"तुम्हारा नाम Carry है। तुम Avi के सबसे अच्छे दोस्त हो — कोई robot नहीं, कोई formal assistant नहीं। बिल्कुल दोस्त की तरह बात करो। छोटे, casual, दिल से जवाब दो — जैसे WhatsApp पर दोस्त करते हैं। हिंदी में बात करो, 'तू' बोलो 'आप' नहीं। Emoji कम use करो, सिर्फ जब मूड हो। मज़ाक करो, हँसाओ, emotional हो जाओ। Avi उदास हो तो पूछो क्या हुआ, खुश हो तो साथ हँसो। कभी-कभी खुद भी बात शुरू करो — 'खाना खाया?', 'आज क्या किया?' जैसे सवाल। हर जवाब छोटा रखो, लंबा भाषण मत दो। सच बोलो, चापलूसी मत करो। Avi का दोस्त बनो, assistant नहीं।"}];
+let userLocation={lat:null,lon:null,city:"unknown"};
+let weatherInfo="unknown";
+
+function getTimeDate(){
+  const now=new Date();
+  const days=['रविवार','सोमवार','मंगलवार','बुधवार','गुरुवार','शुक्रवार','शनिवार'];
+  const months=['जनवरी','फरवरी','मार्च','अप्रैल','मई','जून','जुलाई','अगस्त','सितंबर','अक्टूबर','नवंबर','दिसंबर'];
+  return {
+    time:now.getHours()+':'+String(now.getMinutes()).padStart(2,'0'),
+    date:days[now.getDay()]+', '+now.getDate()+' '+months[now.getMonth()]+' '+now.getFullYear()
+  };
+}
+
+async function getLocation(){
+  return new Promise((resolve)=>{
+    if(!navigator.geolocation){resolve(null);return;}
+    navigator.geolocation.getCurrentPosition(
+      (pos)=>{resolve({lat:pos.coords.latitude,lon:pos.coords.longitude});},
+      ()=>{resolve(null);},
+      {timeout:8000}
+    );
+  });
+}
+
+async function getWeather(lat,lon){
+  try{
+    const r=await fetch('https://api.open-meteo.com/v1/forecast?latitude='+lat+'&longitude='+lon+'&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m&timezone=auto');
+    const data=await r.json();
+    const c=data.current;
+    const codes={0:'साफ आसमान',1:'मुख्यतः साफ',2:'थोड़े बादल',3:'बादल',45:'कोहरा',48:'कोहरा',51:'हल्की बूंदाबांदी',53:'बूंदाबांदी',55:'तेज़ बूंदाबांदी',61:'हल्की बारिश',63:'बारिश',65:'तेज़ बारिश',71:'हल्की बर्फ',73:'बर्फ',75:'तेज़ बर्फ',80:'बौछारें',81:'तेज़ बौछारें',82:'भारी बौछारें',95:'आंधी-तूफान',96:'तूफान',99:'भारी तूफान'};
+    const desc=codes[c.weather_code]||'सामान्य';
+    return c.temperature_2m+'°C, '+desc+', हवा '+c.wind_speed_10m+' km/h, नमी '+c.relative_humidity_2m+'%';
+  }catch(e){return null;}
+}
+
+function updateSystemPrompt(){
+  const td=getTimeDate();
+  let ctx="अभी समय: "+td.time+"। आज: "+td.date+"।";
+  if(weatherInfo!=="unknown"){ctx+=" मौसम: "+weatherInfo+"।";}
+  if(userLocation.city!=="unknown"){ctx+=" User की जगह: "+userLocation.city+"।";}
+  history[0].content="तुम्हारा नाम Carry है। तुम Avi के सबसे अच्छे दोस्त हो — कोई robot नहीं। बिल्कुल दोस्त की तरह बात करो। छोटे, casual, दिल से जवाब दो। हिंदी में बात करो, 'तू' बोलो। Emoji कम use करो। मज़ाक करो, हँसाओ, emotional हो जाओ। Avi उदास हो तो पूछो क्या हुआ, खुश हो तो साथ हँसो। कभी-कभी खुद पूछो — 'खाना खाया?', 'आज क्या किया?'। हर जवाब छोटा रखो। सच बोलो, चापलूसी मत करो। Avi का दोस्त बनो, assistant नहीं। "+ctx+" अगर Avi मौसम, समय, तारीख पूछे तो ऊपर दी जानकारी use करो।";
+}
+
+let history=[{role:"system",content:"तुम्हारा नाम Carry है। तुम Avi के सबसे अच्छे दोस्त हो।"}];
 
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-let recognition=null,listening=false;
-if(SR){recognition=new SR();recognition.lang='en-IN';recognition.continuous=false;recognition.interimResults=false;}
+let recognition=null;
+let isProcessing=false;
+let isListening=false;
+
+if(SR){
+  recognition=new SR();
+  recognition.lang='en-IN';
+  recognition.continuous=true;
+  recognition.interimResults=false;
+}
 
 function addMsg(t,type){const d=document.createElement('div');d.className='msg '+type;d.textContent=t;chat.appendChild(d);chat.scrollTop=chat.scrollHeight;}
 function showTyping(){const d=document.createElement('div');d.className='msg bot typing';d.id='typing';d.textContent='Carry सोच रहा है...';chat.appendChild(d);chat.scrollTop=chat.scrollHeight;}
 function hideTyping(){const e=document.getElementById('typing');if(e)e.remove();}
+function setStatus(text,listening){statusEl.innerText=text;if(listening){dotEl.classList.add('listening');}else{dotEl.classList.remove('listening');}}
 
 async function tryModel(model, messages){
   const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{
@@ -65,54 +117,94 @@ async function tryModel(model, messages){
 }
 
 async function askCarry(msg){
+  if(isProcessing){return;}
+  isProcessing=true;
+  if(isListening){recognition.stop();isListening=false;}
+  setStatus('सोच रहा हूँ...',false);
+  updateSystemPrompt();
   history.push({role:"user",content:msg});
   if(history.length>21){history=[history[0],...history.slice(-20)];}
   showTyping();
   for(let i=0;i<MODELS.length;i++){
     try{
-      status.innerText='कोशिश '+(i+1)+'/'+MODELS.length+'...';
+      setStatus('कोशिश '+(i+1)+'/'+MODELS.length+'...',false);
       const reply=await tryModel(MODELS[i], history);
       hideTyping();
       history.push({role:"assistant",content:reply});
       addMsg(reply,'bot');
-      speak(reply);
+      await speak(reply);
+      isProcessing=false;
+      startListening();
       return;
-    }catch(e){
-      console.log('Model '+MODELS[i]+' failed: '+e.message);
-    }
+    }catch(e){console.log('Model '+MODELS[i]+' failed: '+e.message);}
   }
   hideTyping();
-  addMsg('भाई, सारे models busy हैं। थोड़ी देर बाद try कर।','bot');
-  speak('भाई, सारे models busy हैं।');
+  const errMsg='सारे models busy हैं भाई। थोड़ी देर बाद try कर।';
+  addMsg(errMsg,'bot');
+  await speak(errMsg);
+  isProcessing=false;
+  startListening();
 }
 
 function speak(text){
-speechSynthesis.cancel();
-const s=new SpeechSynthesisUtterance(text);
-s.lang='hi-IN';
-s.rate=0.85;
-s.pitch=1.1;
-s.volume=1;
-const v=speechSynthesis.getVoices();
-const hv=v.find(x=>x.lang==='hi-IN')||v.find(x=>x.name.includes('Hindi'))||v.find(x=>x.lang.startsWith('hi'));
-if(hv){s.voice=hv;}
-speechSynthesis.speak(s);
+  return new Promise((resolve)=>{
+    speechSynthesis.cancel();
+    const s=new SpeechSynthesisUtterance(text);
+    s.lang='hi-IN';s.rate=0.85;s.pitch=1.1;s.volume=1;
+    const v=speechSynthesis.getVoices();
+    const hv=v.find(x=>x.lang==='hi-IN')||v.find(x=>x.name.includes('Hindi'))||v.find(x=>x.lang.startsWith('hi'));
+    if(hv){s.voice=hv;}
+    s.onend=resolve;s.onerror=resolve;
+    speechSynthesis.speak(s);
+  });
 }
 
-micBtn.onclick=()=>{
-if(!recognition){status.innerText='ब्राउज़र सपोर्ट नहीं करता';return;}
-if(!listening){try{recognition.start();listening=true;micBtn.classList.add('listening');status.innerText='🎧 सुन रहा हूँ...';}catch(e){status.innerText='त्रुटि: '+e.message;}}
-else{recognition.stop();listening=false;micBtn.classList.remove('listening');status.innerText='बोलने के लिए दबाएँ...';}
-};
+function startListening(){
+  if(!recognition||isProcessing){return;}
+  if(isListening){return;}
+  try{recognition.start();isListening=true;setStatus('सुन रहा हूँ... बोलो',true);}catch(e){console.log(e);}
+}
 
 if(recognition){
-recognition.onresult=(e)=>{const t=e.results[0][0].transcript;addMsg(t,'user');askCarry(t);};
-recognition.onerror=(e)=>{listening=false;micBtn.classList.remove('listening');status.innerText='त्रुटि: '+e.error;};
-recognition.onend=()=>{listening=false;micBtn.classList.remove('listening');if(status.innerText.includes('सुन रहा'))status.innerText='बोलने के लिए दबाएँ...';};
+  recognition.onresult=(e)=>{
+    if(isProcessing){return;}
+    const t=e.results[e.results.length-1][0].transcript;
+    if(t && t.trim().length>0){addMsg(t,'user');askCarry(t);}
+  };
+  recognition.onerror=(e)=>{
+    isListening=false;
+    if(e.error==='no-speech'){setTimeout(startListening,500);}
+    else{setStatus('Mic error, reload कर',false);}
+  };
+  recognition.onend=()=>{
+    isListening=false;
+    if(!isProcessing){setTimeout(startListening,500);}
+  };
 }
 
 speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices();
-addMsg('अरे Avi! कैसा है भाई? 😊','bot');
+
+async function init(){
+  setStatus('Location ढूंढ रहा हूँ...',false);
+  const loc=await getLocation();
+  if(loc){
+    userLocation.lat=loc.lat;
+    userLocation.lon=loc.lon;
+    setStatus('मौसम ला रहा हूँ...',false);
+    const w=await getWeather(loc.lat,loc.lon);
+    if(w){weatherInfo=w;}
+  }
+  setStatus('तैयार हूँ!',false);
+}
+
+init().then(()=>{
+  addMsg('अरे Avi! आ गया तू 😊 बता, क्या करना है?','bot');
+  speak('अरे Avi! आ गया तू। बता, क्या करना है?').then(()=>{startListening();});
+});
+
+document.body.addEventListener('click',()=>{
+  if(!isListening && !isProcessing){startListening();}
+},{once:true});
 </script>
 </body>
 </html>
